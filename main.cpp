@@ -6,6 +6,7 @@
 #define SDL_MAIN_HANDLED
 #endif
 #include <SDL_main.h>
+#include <SDL3_ttf/SDL_ttf.h>
 #include <opencv2/core.hpp>
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
@@ -37,8 +38,8 @@ void SDL_Fail() {
   exit(1);
 }
 
-Mat drawMaxCountour(Mat &src, int &maxAreaOut, Point &maxCenterOfMassOut,
-                    int minArea) {
+Mat draw_contours(Mat &src, int &maxAreaOut, Point &maxCenterOfMassOut,
+                  int minArea) {
   Mat dst = Mat::zeros(src.rows, src.cols, CV_8UC3);
   std::vector<std::vector<Point>> contours;
   std::vector<Vec4i> hierarchy;
@@ -91,7 +92,8 @@ Mat drawMaxCountour(Mat &src, int &maxAreaOut, Point &maxCenterOfMassOut,
   return dst;
 }
 
-Mat applyPixelFilter(Mat &source) {
+// Select green pixels from the camera frame.
+Mat apply_green_filter(Mat &source) {
   Mat hsvSource;
   cv::cvtColor(source, hsvSource, cv::COLOR_BGR2HSV);
   Mat newMatrix = Mat::zeros(source.rows, source.cols, CV_8UC1);
@@ -133,14 +135,14 @@ Mat applyPixelFilter(Mat &source) {
 // and displays the camera frame in a separate window.
 Action read_frame(VideoCapture &camera, Mat &mutable_frame) {
   camera.read(mutable_frame);
-  Mat green_filter = applyPixelFilter(mutable_frame);
+  Mat green_filter = apply_green_filter(mutable_frame);
   int maxArea;
   Point maxCenterOfMass;
-  Mat contours = drawMaxCountour(green_filter, maxArea, maxCenterOfMass, 10000);
+  Mat contours = draw_contours(green_filter, maxArea, maxCenterOfMass, 10000);
 
   SDL_Log("Center of mass x = %i", maxCenterOfMass.x);
 
-  imshow("Live", contours);
+  imshow("Live", green_filter);
   if (maxCenterOfMass.x == 0) {
     return NONE;
   }
@@ -160,6 +162,28 @@ int clamp(int value, int low, int high) {
     return high;
   }
   return value;
+}
+
+void draw_text(SDL_Renderer *screen, char *string, int size, float x, float y,
+               Uint8 fR, Uint8 fG, Uint8 fB, Uint8 bR, Uint8 bG, Uint8 bB) {
+
+  TTF_Font *font = TTF_OpenFontDPI("ARIAL.TTF", size, 100, 100);
+
+  SDL_Color foregroundColor = {fR, fG, fB};
+  SDL_Color backgroundColor = {bR, bG, bB};
+
+  SDL_Surface *textSurface =
+      TTF_RenderText_Shaded(font, string, foregroundColor, backgroundColor);
+
+  SDL_FRect textLocation = {x, y, 0, 0};
+
+  SDL_Texture *tex = SDL_CreateTextureFromSurface(screen, textSurface);
+  SDL_RenderTexture(screen, tex, NULL, &textLocation);
+ 
+  SDL_DestroySurface(textSurface);
+  SDL_DestroyTexture(tex);
+
+  TTF_CloseFont(font);
 }
 
 void main_loop(SDL_Window *win) {
