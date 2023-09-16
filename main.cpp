@@ -5,8 +5,8 @@
 // On UWP, we need to not have SDL_main otherwise we'll get a linker error
 #define SDL_MAIN_HANDLED
 #endif
-#include <SDL_main.h>
 #include <SDL3_ttf/SDL_ttf.h>
+#include <SDL_main.h>
 #include <opencv2/core.hpp>
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
@@ -31,6 +31,9 @@ struct Pixel {
   unsigned char saturation;
   unsigned char value;
 };
+
+const int winWidth = 1200;
+const int winHeight = 1200;
 
 enum Action { NONE, MOVE_LEFT, MOVE_RIGHT };
 void SDL_Fail() {
@@ -131,9 +134,14 @@ Mat apply_green_filter(Mat &source) {
   return newMatrix;
 }
 
+struct ReadFrameResult {
+  Action action;
+  cv::Point centerOfMass;
+};
+
 // Reads the current camera frame, loads it into mutable_frame,
 // and displays the camera frame in a separate window.
-Action read_frame(VideoCapture &camera, Mat &mutable_frame) {
+ReadFrameResult read_frame(VideoCapture &camera, Mat &mutable_frame) {
   camera.read(mutable_frame);
   Mat green_filter = apply_green_filter(mutable_frame);
   int maxArea;
@@ -141,18 +149,27 @@ Action read_frame(VideoCapture &camera, Mat &mutable_frame) {
   Mat contours = draw_contours(green_filter, maxArea, maxCenterOfMass, 10000);
 
   SDL_Log("Center of mass x = %i", maxCenterOfMass.x);
+  Scalar color = Scalar(255, 0, 0); // Color for Drawing tool
 
-  imshow("Live", green_filter);
+  cv::circle(mutable_frame, maxCenterOfMass, 20, color, 10);
+  imshow("Live", mutable_frame);
+
+  ReadFrameResult res;
+  res.centerOfMass = maxCenterOfMass;
+
   if (maxCenterOfMass.x == 0) {
-    return NONE;
+    res.action = NONE;
+    return res;
   }
+  
   if (maxCenterOfMass.x < 1000) {
-    return MOVE_RIGHT;
+    res.action = MOVE_RIGHT;
   } else if (maxCenterOfMass.x > 1200) {
-    return MOVE_LEFT;
+    res.action = MOVE_LEFT;
   } else {
-    return NONE;
+    res.action = NONE;
   }
+  return res;
 }
 
 int clamp(int value, int low, int high) {
@@ -167,7 +184,10 @@ int clamp(int value, int low, int high) {
 void draw_text(SDL_Renderer *screen, char *string, int size, float x, float y,
                Uint8 fR, Uint8 fG, Uint8 fB, Uint8 bR, Uint8 bG, Uint8 bB) {
 
-  TTF_Font *font = TTF_OpenFontDPI("ARIAL.TTF", size, 100, 100);
+  TTF_Font *font = TTF_OpenFontDPI("Arial.ttf", 10, 200, 200);
+  if (font == NULL) {
+    SDL_Log("Error with loading font: %s", SDL_GetError());
+  }
 
   SDL_Color foregroundColor = {fR, fG, fB};
   SDL_Color backgroundColor = {bR, bG, bB};
@@ -175,16 +195,22 @@ void draw_text(SDL_Renderer *screen, char *string, int size, float x, float y,
   SDL_Surface *textSurface =
       TTF_RenderText_Shaded(font, string, foregroundColor, backgroundColor);
 
-  SDL_FRect textLocation = {x, y, 0, 0};
+  SDL_FRect textLocation = {x, y, x + 1, y + 1};
 
   SDL_Texture *tex = SDL_CreateTextureFromSurface(screen, textSurface);
+  if (tex == NULL) {
+    SDL_Log("Error with loading texture: %s", SDL_GetError());
+  }
+
   SDL_RenderTexture(screen, tex, NULL, &textLocation);
- 
+
   SDL_DestroySurface(textSurface);
   SDL_DestroyTexture(tex);
 
   TTF_CloseFont(font);
 }
+
+void draw_hud(cv::Point centerOfMass, Action action) {}
 
 void main_loop(SDL_Window *win) {
   Mat frame;
@@ -223,14 +249,23 @@ void main_loop(SDL_Window *win) {
       }
     }
 
-    Action action = read_frame(cap, frame);
+    ReadFrameResult frameinput = read_frame(cap, frame);
+    Action action = frameinput.action;
     if (action == MOVE_LEFT) {
-      rect.x = clamp(rect.x - 10, 10, 800);
+      rect.x = clamp(rect.x - 10, 10, winWidth-100);
     } else if (action == MOVE_RIGHT) {
-      rect.x = clamp(rect.x + 10, 10, 800);
+      //
+      // void draw_text(SDL_Renderer *screen, char *string, int size, float x,
+      // float y,
+      //       Uint8 fR, Uint8 fG, Uint8 fB, Uint8 bR, Uint8 bG, Uint8 bB) {
+      rect.x = clamp(rect.x + 10, 10, winWidth - 100);
     }
     SDL_RenderClear(rend);
     int res = SDL_RenderTexture(rend, tex, NULL, &rect);
+
+    char moving_right[] = "Moving right";
+    draw_text(rend, moving_right, 20, 100, 100, 255, 0, 0, 0, 0, 0);
+
     if (res != 0) {
       SDL_Log("error with rendering: %s", SDL_GetError());
     }
@@ -251,9 +286,13 @@ int main(int argc, char *argv[]) {
     SDL_Fail();
   }
 
+  if (TTF_Init()) {
+    SDL_Fail();
+  }
+
   // create a window
   SDL_Window *window =
-      SDL_CreateWindow("Window", 1200, 1200, SDL_WINDOW_RESIZABLE);
+      SDL_CreateWindow("Window", winWidth, winHeight, SDL_WINDOW_RESIZABLE);
   if (!window) {
     SDL_Fail();
   }
