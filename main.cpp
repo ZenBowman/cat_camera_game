@@ -11,6 +11,7 @@
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
 #include <opencv2/videoio.hpp>
+#include <opencv2/objdetect.hpp>
 
 static bool app_quit = false;
 const char *image_path = "gingertail_runwalk.bmp";
@@ -141,38 +142,41 @@ struct ReadFrameResult {
 
 // Reads the current camera frame, loads it into mutable_frame,
 // and displays the camera frame in a separate window.
-ReadFrameResult read_frame(VideoCapture &camera, Mat &mutable_frame) {
+ReadFrameResult read_frame(VideoCapture &camera, Mat &mutable_frame, cv::CascadeClassifier &body_cascade) {
   camera.read(mutable_frame);
   Mat green_filter = apply_green_filter(mutable_frame, /*min_green=*/ 100);
-  int maxArea;
-  Point maxCenterOfMass;
-  Mat contours = draw_contours(green_filter, maxArea, maxCenterOfMass, 10000);
+  int max_area;
+  Point max_center_of_mass;
+  Mat contours = draw_contours(green_filter, max_area, max_center_of_mass, 10000);
 
-  // SDL_Log("Center of mass x = %i", maxCenterOfMass.x);
-
-  if (maxCenterOfMass.x == 0) {
-    // Sometimes the camera input is too dark. Retry with a lower min_green.
-    green_filter = apply_green_filter(mutable_frame, /*min_green=*/ 50);
-    contours = draw_contours(green_filter, maxArea, maxCenterOfMass, 5000);
-  }
-  
   Scalar color = Scalar(255, 0, 0); // Color for Drawing tool
 
-  cv::circle(mutable_frame, maxCenterOfMass, 20, color, 10);
+  Mat frame_gray;
+  cv::cvtColor( mutable_frame, frame_gray, cv::COLOR_BGR2GRAY );
+
+  // Also draw a rect around the detected body.
+  std::vector<cv::Rect> bodies;
+  body_cascade.detectMultiScale(frame_gray, bodies);
+
+  for (auto i=0; i<bodies.size(); i++) {
+    cv::Point body_point(bodies[i].x, bodies[i].y);
+    cv::circle(mutable_frame, body_point, 10, color, 10);
+  }
+  
+  cv::circle(mutable_frame, max_center_of_mass, 20, color, 10);
   imshow("Live", mutable_frame);
-
+  
   ReadFrameResult res;
-  res.center_of_mass = maxCenterOfMass;
+  res.center_of_mass = max_center_of_mass;
 
-  if (maxCenterOfMass.x == 0) {
+  if (max_center_of_mass.x == 0) {
     res.action = NONE;
     return res;
   }
-
   
-  if (maxCenterOfMass.x < 1000) {
+  if (max_center_of_mass.x < 1000) {
     res.action = MOVE_RIGHT;
-  } else if (maxCenterOfMass.x > 1200) {
+  } else if (max_center_of_mass.x > 1200) {
     res.action = MOVE_LEFT;
   } else {
     res.action = NONE;
@@ -230,6 +234,11 @@ void main_loop(SDL_Window *win) {
     return;
   }
 
+  cv::CascadeClassifier body_cascade;
+  if (!body_cascade.load("haarcascade_eye_tree_eyeglasses.xml")) {
+    SDL_Log("Could not load fullbody cascade");
+  }
+
   // Setup basic renderer.
   Uint32 render_flags = SDL_RENDERER_ACCELERATED;
   SDL_Renderer *rend = SDL_CreateRenderer(win, NULL, render_flags);
@@ -257,7 +266,7 @@ void main_loop(SDL_Window *win) {
       }
     }
 
-    ReadFrameResult frameinput = read_frame(cap, frame);
+    ReadFrameResult frameinput = read_frame(cap, frame, body_cascade);
     Action action = frameinput.action;
     if (action == MOVE_LEFT) {
       rect.x = clamp(rect.x - 10, 10, winWidth-100);
