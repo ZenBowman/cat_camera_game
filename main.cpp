@@ -96,7 +96,7 @@ Mat draw_contours(Mat &src, int &maxAreaOut, Point &maxCenterOfMassOut,
 }
 
 // Select green pixels from the camera frame.
-Mat apply_green_filter(Mat &source) {
+Mat apply_green_filter(Mat &source, int min_green) {
   Mat hsvSource;
   cv::cvtColor(source, hsvSource, cv::COLOR_BGR2HSV);
   Mat newMatrix = Mat::zeros(source.rows, source.cols, CV_8UC1);
@@ -124,7 +124,7 @@ Mat apply_green_filter(Mat &source) {
       pixel.saturation = hsvSrcRowPointer[srcColIndex + 1];
       pixel.value = hsvSrcRowPointer[srcColIndex + 2];
 
-      if ((pixel.green > 100) && (pixel.green > (pixel.red * 1.15)) &&
+      if ((pixel.green > min_green) && (pixel.green > (pixel.red * 1.15)) &&
           (pixel.green > (pixel.blue * 1.15))) {
         destRowPointer[j] = 255;
       }
@@ -136,31 +136,41 @@ Mat apply_green_filter(Mat &source) {
 
 struct ReadFrameResult {
   Action action;
-  cv::Point centerOfMass;
+  cv::Point center_of_mass;
 };
 
 // Reads the current camera frame, loads it into mutable_frame,
 // and displays the camera frame in a separate window.
 ReadFrameResult read_frame(VideoCapture &camera, Mat &mutable_frame) {
   camera.read(mutable_frame);
-  Mat green_filter = apply_green_filter(mutable_frame);
+  Mat green_filter = apply_green_filter(mutable_frame, /*min_green=*/ 100);
   int maxArea;
   Point maxCenterOfMass;
   Mat contours = draw_contours(green_filter, maxArea, maxCenterOfMass, 10000);
 
-  SDL_Log("Center of mass x = %i", maxCenterOfMass.x);
+  // SDL_Log("Center of mass x = %i", maxCenterOfMass.x);
+
+  if (maxCenterOfMass.x == 0) {
+    // Sometimes the camera input is too dark. Retry with a lower min_green.
+    green_filter = apply_green_filter(mutable_frame, /*min_green=*/ 75);
+    contours = draw_contours(green_filter, maxArea, maxCenterOfMass, 10000);
+  }
+
+
+  
   Scalar color = Scalar(255, 0, 0); // Color for Drawing tool
 
   cv::circle(mutable_frame, maxCenterOfMass, 20, color, 10);
   imshow("Live", mutable_frame);
 
   ReadFrameResult res;
-  res.centerOfMass = maxCenterOfMass;
+  res.center_of_mass = maxCenterOfMass;
 
   if (maxCenterOfMass.x == 0) {
     res.action = NONE;
     return res;
   }
+
   
   if (maxCenterOfMass.x < 1000) {
     res.action = MOVE_RIGHT;
@@ -195,7 +205,7 @@ void draw_text(SDL_Renderer *screen, char *string, int size, float x, float y,
   SDL_Surface *textSurface =
       TTF_RenderText_Shaded(font, string, foregroundColor, backgroundColor);
 
-  SDL_FRect textLocation = {x, y, x + 1, y + 1};
+  SDL_FRect textLocation = {x, y, 200, 50};
 
   SDL_Texture *tex = SDL_CreateTextureFromSurface(screen, textSurface);
   if (tex == NULL) {
@@ -263,8 +273,9 @@ void main_loop(SDL_Window *win) {
     SDL_RenderClear(rend);
     int res = SDL_RenderTexture(rend, tex, NULL, &rect);
 
-    char moving_right[] = "Moving right";
-    draw_text(rend, moving_right, 20, 100, 100, 255, 0, 0, 0, 0, 0);
+    char center_of_mass_string[256];
+    snprintf(center_of_mass_string, 256, "Center of mass: %d", frameinput.center_of_mass.x);
+    draw_text(rend, center_of_mass_string, 20, 100, 100, 255, 0, 0, 0, 0, 0);
 
     if (res != 0) {
       SDL_Log("error with rendering: %s", SDL_GetError());
