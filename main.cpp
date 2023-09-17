@@ -152,11 +152,9 @@ ReadFrameResult read_frame(VideoCapture &camera, Mat &mutable_frame) {
 
   if (maxCenterOfMass.x == 0) {
     // Sometimes the camera input is too dark. Retry with a lower min_green.
-    green_filter = apply_green_filter(mutable_frame, /*min_green=*/ 75);
-    contours = draw_contours(green_filter, maxArea, maxCenterOfMass, 10000);
+    green_filter = apply_green_filter(mutable_frame, /*min_green=*/ 50);
+    contours = draw_contours(green_filter, maxArea, maxCenterOfMass, 5000);
   }
-
-
   
   Scalar color = Scalar(255, 0, 0); // Color for Drawing tool
 
