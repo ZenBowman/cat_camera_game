@@ -142,7 +142,7 @@ struct ReadFrameResult {
 
 // Reads the current camera frame, loads it into mutable_frame,
 // and displays the camera frame in a separate window.
-ReadFrameResult read_frame(VideoCapture &camera, Mat &mutable_frame, cv::CascadeClassifier &body_cascade) {
+ReadFrameResult read_frame(VideoCapture &camera, Mat &mutable_frame, cv::CascadeClassifier &body_cascade, cv::CascadeClassifier &face_cascade, cv::CascadeClassifier &eye_cascade) {
   camera.read(mutable_frame);
   Mat green_filter = apply_green_filter(mutable_frame, /*min_green=*/ 100);
   int max_area;
@@ -154,16 +154,7 @@ ReadFrameResult read_frame(VideoCapture &camera, Mat &mutable_frame, cv::Cascade
   Mat frame_gray;
   cv::cvtColor( mutable_frame, frame_gray, cv::COLOR_BGR2GRAY );
 
-  // Also draw a rect around the detected body.
-  std::vector<cv::Rect> bodies;
-  body_cascade.detectMultiScale(frame_gray, bodies);
-
-  for (auto i=0; i<bodies.size(); i++) {
-    cv::Point body_point(bodies[i].x, bodies[i].y);
-    cv::circle(mutable_frame, body_point, 10, color, 10);
-  }
-  
-  cv::circle(mutable_frame, max_center_of_mass, 20, color, 10);
+    cv::circle(mutable_frame, max_center_of_mass, 20, color, 10);
   imshow("Live", mutable_frame);
   
   ReadFrameResult res;
@@ -235,8 +226,17 @@ void main_loop(SDL_Window *win) {
   }
 
   cv::CascadeClassifier body_cascade;
-  if (!body_cascade.load("haarcascade_eye_tree_eyeglasses.xml")) {
+  cv::CascadeClassifier face_cascade;
+  cv::CascadeClassifier eye_cascade;
+  
+  if (!body_cascade.load("haarcascade_fullbody.xml")) {
     SDL_Log("Could not load fullbody cascade");
+  }
+  if (!face_cascade.load("haarcascade_frontalface_alt.xml")) {
+    SDL_Log("Could not load face cascade");
+  }
+  if (!eye_cascade.load("haarcascade_eye_tree_eyeglasses.xml")) {
+    SDL_Log("Could not load eye cascade");
   }
 
   // Setup basic renderer.
@@ -266,7 +266,7 @@ void main_loop(SDL_Window *win) {
       }
     }
 
-    ReadFrameResult frameinput = read_frame(cap, frame, body_cascade);
+    ReadFrameResult frameinput = read_frame(cap, frame, body_cascade, face_cascade, eye_cascade);
     Action action = frameinput.action;
     if (action == MOVE_LEFT) {
       rect.x = clamp(rect.x - 10, 10, winWidth-100);
