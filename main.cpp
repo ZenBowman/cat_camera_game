@@ -156,6 +156,7 @@ ReadFrameResult read_frame(VideoCapture &camera, Mat &mutable_frame, cv::Cascade
 
     cv::circle(mutable_frame, max_center_of_mass, 20, color, 10);
   imshow("Live", mutable_frame);
+    imshow("Gray", frame_gray);
   
   ReadFrameResult res;
   res.center_of_mass = max_center_of_mass;
